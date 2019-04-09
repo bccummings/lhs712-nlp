@@ -14,17 +14,175 @@ output:
       smooth_scroll: yes
 ---
 
+**Libraries Used**
+```{r message=F, warning=F}
+# Data I/O
+library('RPostgreSQL')    # access MIMIC-III
+library('reshape2')       # melting dataframes
+
+# Data preparation
+library('psych')          # descriptive stats
+library('tm')             # text mining
+library('SnowballC')      # text stemming
+
+# Analytics
+library('rpart')          # rpart decision tree
+library('caret')          # confusion matrices
+library('e1071')          # naive Bayes
+
+# Plots and tables
+library('knitr')          # knitting Rmd to HTML; kable() function
+library('kableExtra')     # extra formating options for knitr tables
+library('ggplot2')        # 2d plotting
+library('ggpubr')         # extra formatting options for ggplot
+library('wordcloud')      # visualizing free text data
+library('rattle')         # fancyRPartPlot
+```
+
+**Random seed set**
+```{r message=F, warning=F}
+set.seed(123456)
+```
+
+**Authors Note**  
+
+A small portion of the language and code used to describe the MIMIC-III dataset is recycled in part from a previous course project completed by the author. This is largely limited to the description of the MIMIC-III installation process and the initialization of the database connection object. This project, constructed in partial fulfillment of the course HS650: Data Science and Predictive Analytics, is available in full at the link below [(Cummings 2018)](http://bccummings.com/sample_projects/hs650_final_project.html).
+
+***
+
+# Abstract
+
+TODO
+
+***
+
 # Introduction
 
 ## Chronic health failure
 
+TODO
+
+***
+
 ## MIMIC-III database
+
+The Medical Information Mart for Intensive Care [(MIMIC-III)](https://mimic.physionet.org/>MIMIC-III) is a data set developed by the Massachusetts Institute of Technology (MIT) which contains de-identified healthcare data from more than 40,000 intensive care unit (ICU) patients over the years 2001-2012 [(Johnson et. al 2016)](https://www.ncbi.nlm.nih.gov/pubmed/27219127). It includes most of the information found in an electronic health record (EHR) including demographics, diagnosis codes, procedures, lab values, vital signs, admission and discharge information, and optionally waveforms. Most saliently, the database contains 2,083,180 clinical notes in free text form. It is available free of charge, however, accessing the database requires completion of an online course on research ethics.
+
+***
 
 # Methods
 
-## Data extraction
+## MIMIC-III Installation and Access
 
+A local copy of the MIMIC-III database was stored as a [PostgreSQL](https://www.postgresql.org/) database. 
+To build the database, I followed the tutorial listed on the [PhysioNet website](https://mimic.physionet.org/tutorials/install-mimic-locally-ubuntu/) and used the tools available in the [`mimic-code`](https://github.com/MIT-LCP/mimic-code) GitHub repository [("Install MIMIC (Unix/Mac)"](https://mimic.physionet.org/tutorials/install-mimic-locally-ubuntu/), [Johnson et. al 2018)](https://www.ncbi.nlm.nih.gov/pubmed/29036464).
 
+Once the database was constructed, I used the `RPostgreSQL` library for data import and manipulation. Note that due to the large size of the data set, querying the database can be computationally intensive. In some of the larger queries, the results are cached as an `.RData` file and loaded in separately. This is especially true when processing the free-text document corpus, which is computationally intensive.
 
+The first step is loading the database connection (stored in the variable `con`) using the functions `dbConnect()` and `dbExcecute()`. This connection will be open until it is closed using the function `dbDisconnent()`. Note that the `invisible()` wrapper around the `dbExecute()` function serves only to silence the output.
+
+```{r eval=T, message=F, warning=F}
+con <- dbConnect(dbDriver('PostgreSQL'), 
+                 dbname = 'mimic', 
+                 host = '127.0.0.1', 
+                 port = '5432', 
+                 user = 'postgres', 
+                 password = 'postgres')
+
+invisible(dbExecute(con, paste("SET search_path TO ", 
+                               schema = 'mimiciii', 
+                               sep=" ")))
+```
+
+***
+
+## Cohort selection
+
+After the database connection has been made and stored in the `con` object, the next step is to define our cohort of patients with heart failure. One common method of identifying heart failure patients for retrospective studies is by using International Disease Classification [(ICD)](https://www.cms.gov/medicare/coding/icd9providerdiagnosticcodes/codes.html) codes. Heart failure is denotated in the 9th version of the ICD system (ICD-9) as the 428 group [(ICD9Data, "Heart Failure 428")](http://www.icd9data.com/2012/Volume1/390-459/420-429/428/default.htm). These codes are further broken into subcategories, including congestive heart failure (428.0), left-sided heart failure (428.1), systolic and diastolic heart failure (428.2 and 428.3, respectively), and combined left- and right-sided heart failure (428.4). There is another category for unspecified heart failures (428.9). These are collected into the `icd9.codes` variable below and used to query the database.
+
+In MIMIC, each patient is associated with one or more ICD9 codes via the `DIAGNOSES_ICD` table. Patients who have been diagnosed with one of the forms of heart failure listed above can be identified and extracted.
+
+```{r message=F, warning=F}
+# ICD9 codes for heart failure
+icd9.codes <- c('4280', '4281', '42820', '42821', '42822', '42823', '42830', '42831', '42832', '42833', '42840', '42841', '42842', '42843', '4289')
+
+# Select patients with these diagnosis
+cohort.df <- dbGetQuery(con, sprintf("SELECT *
+                                      FROM DIAGNOSES_ICD
+                                      WHERE ICD9_CODE IN ('%s')",
+                                      paste(icd9.codes, collapse="', '")))
+```
+
+Patients in MIMIC are identified both by a subject identifier (`subj_id`) as well as a unique admission identifier (`hadm_id`). Each subject can have multiple admissions, however, each admission is mapped to exactly one subject. After the above step, there are `r length(unique(cohort.df$hadm_id))` admission events corresponding to `r length(unique(cohort.df$subject_id))` unique patients.
+
+### Filter admission events
+
+Because one of our endpoints is out-of-hospital mortality, I chose to only consider the last admission event for each patient. This is extracted from the `ADMISSIONS` table, which has admission and discharge times for each `hadm_id`. These events are extracted from the table via SQL query. Note that the `hadm_id` is used for lookup rather than `subject_id` - this is because individual patients may have later admissions not associated with heart failure, which are of less interest to this investigation. After extracting the requisite admissions data, all `hadm_id` events are removed except the last one.
+
+```{r message=F, warning=F}
+# Get latest admission time (by hadm_id not subject_id b/c could have later hadm w/o HF)
+admissions <- dbGetQuery(con, sprintf("SELECT *
+                                       FROM ADMISSIONS
+                                       WHERE HADM_ID IN ('%s')",
+                                       paste(cohort.df$hadm_id, collapse="', '")))
+
+# Sort by admission time in descending order, then remove duplicates
+admissions <- admissions[order(admissions$admittime, decreasing=T),]
+cohort.admissions <- admissions[!duplicated(admissions$subject_id),]
+```
+
+After this sorting process, I am left with `r length(unique(cohort.admissions$hadm_id))` hospital admissions which matches the number of patients.
+
+### Length of stay
+
+As a last filtering step, I wanted to filter patients based on their length of stay in the hospital. This varies widely between patients, and putting some controls in this respect can help normalize my results. First I calculate the length of stay, then visualize the results via histogram and summary statistics.
+
+```{r message=F, warning=F}
+# Sort by length of stay
+cohort.admissions$los <- difftime(cohort.admissions$dischtime, cohort.admissions$admittime, units='days')
+
+# Summary statistics
+kable(t(describe(as.numeric(cohort.admissions$los))), 
+      digits=2, col.names=NULL, caption='Length of Stay (days)') %>%
+  kable_styling(bootstrap_options='striped')
+
+# Plot histogram
+fig <- ggplot(data=cohort.admissions, aes(x=los)) +
+  geom_histogram() + 
+  ggtitle('Histogram of Length of Stay') + xlab('Length of Stay (days)')
+print(fig)
+```
+
+We can see that the maximum length of stay is quite long - `r as.character(round(max(cohort.admissions$los)))` days! Surprisingly, the minimum length of stay is actually negative at `r as.character(round(min(cohort.admissions$los), digits=2))` days. To help standardize this, I choose to only include patients whose ICU admission is longer than 24 hours, but less than 30 days. This leaves `r sum(cohort.admissions$los > 1 & cohort.admissions$los < 30)` of the original `r nrow(cohort.admissions)` patients.
+
+```{r message=F, warning=F}
+cohort.admissions <- cohort.admissions[cohort.admissions$los > 1 & cohort.admissions$los < 30, ]
+```
+
+The result of this cohort selection process is `r nrow(cohort.admissions)` `hadm_id`s each representing the last ICU admission of a given subject diagnosed with a form of heart failure.
+
+## Corpus building
+
+## Reature engineering
+
+TODO
+
+# Results
+
+## Machine Learning
+
+TODO
+
+# Conclusion
+
+TODO
+
+# References
+
+* Cummings BC (2018). "DSPA Final Project." http://bccummings.com/sample_projects/hs650_final_project.html  
+* ICD9Data.com, "Heart Failure 428". http://www.icd9data.com/2012/Volume1/390-459/420-429/428/default.htm. 
+* Install MIMIC (Unix/Mac). (n.d.). Retrieved November 24, 2018, from https://mimic.physionet.org/tutorials/install-mimic-locally-ubuntu/  
+* Johnson, A. E. W., Pollard, T. J., Shen, L., Lehman, L. H., Feng, M., Ghassemi, M., … Mark, R. G. (2016). MIMIC-III, a freely accessible critical care database. Scientific Data, 3, 160035. https://doi.org/10.1038/sdata.2016.35  
+* Johnson AEW, Stone, DJ, Celi LA, Pollard TJ (2018). The MIMIC Code Repository: enabling reproducibility in critical care research. Journal of the American Medical Informatics Association, 25(1), 32–39. https://doi.org/10.1093/jamia/ocx084
 
 
