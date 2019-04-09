@@ -58,9 +58,9 @@ TODO
 
 # Introduction
 
-## Chronic health failure
+## Health failure
 
-TODO
+"Heart failure," as described in Mosterd and Hoes' 2007 review, "is a syndrome with symptoms and signs caused by cardiac dysfunction resulting in reduced longevity" [(Mosterd & Hoes, 2007)](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC1955040/pdf/1137.pdf). Patients are primarily identified by their symptoms...
 
 ***
 
@@ -180,9 +180,9 @@ TODO
 # References
 
 * Cummings BC (2018). "DSPA Final Project." http://bccummings.com/sample_projects/hs650_final_project.html  
-* ICD9Data.com, "Heart Failure 428". http://www.icd9data.com/2012/Volume1/390-459/420-429/428/default.htm. 
+* ICD9Data.com, "Heart Failure 428".   http://www.icd9data.com/2012/Volume1/390-459/420-429/428/default.htm. 
 * Install MIMIC (Unix/Mac). (n.d.). Retrieved November 24, 2018, from https://mimic.physionet.org/tutorials/install-mimic-locally-ubuntu/  
 * Johnson, A. E. W., Pollard, T. J., Shen, L., Lehman, L. H., Feng, M., Ghassemi, M., … Mark, R. G. (2016). MIMIC-III, a freely accessible critical care database. Scientific Data, 3, 160035. https://doi.org/10.1038/sdata.2016.35  
-* Johnson AEW, Stone, DJ, Celi LA, Pollard TJ (2018). The MIMIC Code Repository: enabling reproducibility in critical care research. Journal of the American Medical Informatics Association, 25(1), 32–39. https://doi.org/10.1093/jamia/ocx084
-
+* Johnson AEW, Stone, DJ, Celi LA, Pollard TJ (2018). The MIMIC Code Repository: enabling reproducibility in critical care research. Journal of the American Medical Informatics Association, 25(1), 32–39. https://doi.org/10.1093/jamia/ocx084  
+* Mosterd A & Hoes AW (2007). "Clinical Epidemiology of Heart Failure." Heart 93:1137-1146. https://doi.org/10.1136/hrt.2003.025270 
 
