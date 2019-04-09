@@ -1,0 +1,30 @@
+---
+title: "LHS712: Natural Language Processing for Health"
+author: "<h3>Brandon Cummings</h3>"
+date: "`r format(Sys.time(), '%B %Y')`"
+output:
+  html_document:
+    highlight: tango
+    number_sections: yes
+    theme: default
+    toc: yes
+    toc_depth: 2
+    toc_float:
+      collapsed: no
+      smooth_scroll: yes
+---
+
+# Introduction
+
+## Chronic health failure
+
+## MIMIC-III database
+
+# Methods
+
+## Data extraction
+
+
+
+
+
